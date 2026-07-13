@@ -7,15 +7,14 @@ const groundCanvas = document.createElement('canvas');
 const groundCtx = groundCanvas.getContext('2d');
 let horizonY = 0;
 
-// ---------- Battlefield background art (CraftPix free nature/RPG-battle pack) ----------
-// layered scene: distant sky+mountains, a tree line at the horizon, a
-// grass+stream ground plane, and a bush frame along the bottom edge.
+// ---------- Battlefield background art (CraftPix free RPG battleground pack) ----------
+// layered scene: distant sky+mountains, a castle wall with towers sitting at
+// the horizon, and a wooden bridge/plank floor where the armies clash.
 const BG_BASE = 'assets/bg/';
 const BG_FILES = {
-  sky: 'sky_mountains.jpg',
-  trees: 'trees.png',
-  ground: 'ground.jpg',
-  bushes: 'bushes.png',
+  sky: 'castle_sky.jpg',
+  wall: 'castle_wall.png',
+  ground: 'castle_bridge.jpg',
 };
 const BG_IMAGES = {};
 let bgLoadTotal = 0;
@@ -62,8 +61,8 @@ function drawCoverImage(g, img, dx, dy, dw, dh) {
 }
 
 // draws `img` scaled uniformly to exactly span width `w`, anchored so either
-// its top or bottom edge lands on `edgeY` (used for the tree line / bushes,
-// which have transparent padding and shouldn't be stretched off-aspect)
+// its top or bottom edge lands on `edgeY` (used for the castle wall, which
+// has transparent padding and shouldn't be stretched off-aspect)
 function drawWidthAlignedImage(g, img, x, w, edgeY, anchor) {
   if (!img || !img.complete || !img.naturalWidth) return;
   const scale = w / img.naturalWidth;
@@ -127,7 +126,7 @@ const ARCHERS_PER_SIDE = 4; // backline ranged units, only triggered by bigger t
 const MORTARS_PER_SIDE = 1; // one small mortar per side, stationed just ahead of the gunners
 const HORIZON_MARGIN = 90; // keep every unit's whole body (not just its feet) below the horizon line —
                             // large enough to clear a full-height knight sprite even at max combat scale,
-                            // so units read as standing in the grass instead of hovering near the tree line
+                            // so units read as standing on the bridge deck instead of hovering near the wall
 let UNIT_SIZE_MULT = 0.8; // -20% overall character size baseline (applies to sprite + procedural
                            // rendering); recomputed responsively per-screen-width by computeFieldScale()
 const MAX_BATTLE_SHIFT = 130; // px the melee front line can push toward either side as one team dominates
@@ -429,21 +428,19 @@ function generateGroundTexture() {
   if (bgReady) {
     // sky + distant mountains fill everything above the horizon
     drawCoverImage(g, BG_IMAGES.sky, 0, 0, W, horizonY);
-    // tree line straddles the horizon: canopy above, roots at the grass line
-    drawWidthAlignedImage(g, BG_IMAGES.trees, 0, W, horizonY, 'bottom');
-    // grass + stream ground plane fills everything below the horizon
+    // castle wall + towers straddle the horizon: battlements above, stone
+    // base rooted at the bridge deck
+    drawWidthAlignedImage(g, BG_IMAGES.wall, 0, W, horizonY, 'bottom');
+    // wooden bridge deck fills everything below the horizon — this is where the armies clash
     drawCoverImage(g, BG_IMAGES.ground, 0, horizonY, W, groundH);
 
-    // trampled dirt battleground across the middle, where the duels happen
+    // battle-scorched patch across the middle, where the duels happen
     const pathY = horizonY + groundH * 0.4;
     const pathGrad = g.createRadialGradient(W / 2, pathY, 20, W / 2, pathY, W * 0.4);
-    pathGrad.addColorStop(0, 'rgba(80,58,32,0.32)');
-    pathGrad.addColorStop(1, 'rgba(80,58,32,0)');
+    pathGrad.addColorStop(0, 'rgba(20,14,10,0.30)');
+    pathGrad.addColorStop(1, 'rgba(20,14,10,0)');
     g.fillStyle = pathGrad;
     g.fillRect(0, horizonY, W, groundH);
-
-    // bushes frame the very bottom edge of the screen
-    drawWidthAlignedImage(g, BG_IMAGES.bushes, 0, W, H, 'bottom');
 
     // gentle dusk wash so unit sprites/particles stay readable against the bright art
     g.fillStyle = 'rgba(8,16,8,0.22)';
@@ -503,7 +500,7 @@ function generateGroundTexture() {
 function drawGround() {
   const W = window.innerWidth, H = window.innerHeight;
 
-  // cached full-scene composite (sky/mountains/trees/ground, or the
+  // cached full-scene composite (sky/mountains/castle wall/bridge deck, or the
   // procedural fallback while the art loads)
   ctx.drawImage(groundCanvas, 0, 0);
 

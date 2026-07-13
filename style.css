@@ -161,6 +161,62 @@ canvas#field {
   border-color: rgba(77, 255, 77, 0.5);
 }
 
+.site-stats {
+  position: absolute;
+  bottom: max(18px, env(safe-area-inset-bottom));
+  left: max(18px, env(safe-area-inset-left));
+  z-index: 20;
+  display: flex;
+  gap: 8px;
+}
+
+.stat-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 34px;
+  padding: 0 12px;
+  border-radius: 17px;
+  border: 1px solid rgba(244, 211, 94, 0.4);
+  background: rgba(10, 20, 10, 0.65);
+  backdrop-filter: blur(2px);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 13px;
+  color: #cfe8cf;
+  font-variant-numeric: tabular-nums;
+}
+
+button.stat-item {
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+button.stat-item:hover {
+  background: rgba(20, 35, 20, 0.85);
+  transform: scale(1.06);
+}
+
+button.stat-item:disabled {
+  cursor: default;
+  opacity: 0.7;
+  transform: none;
+}
+
+.stat-like.active {
+  color: #4dff4d;
+  border-color: rgba(77, 255, 77, 0.6);
+}
+
+.stat-dislike.active {
+  color: #ff4d4d;
+  border-color: rgba(255, 77, 77, 0.6);
+}
+
+.stat-icon {
+  font-size: 14px;
+  line-height: 1;
+}
+
 /* ---------- Mobile / small-screen responsiveness ---------- */
 /* the canvas battlefield itself already re-layouts responsively via JS
    (script.js: fieldScale / computeFieldScale); these rules just keep the
@@ -210,6 +266,20 @@ canvas#field {
     bottom: max(12px, env(safe-area-inset-bottom));
     right: 12px;
   }
+  .site-stats {
+    bottom: max(12px, env(safe-area-inset-bottom));
+    left: 12px;
+    gap: 6px;
+  }
+  .stat-item {
+    height: 28px;
+    padding: 0 9px;
+    font-size: 11px;
+    gap: 4px;
+  }
+  .stat-icon {
+    font-size: 12px;
+  }
 }
 
 @media (max-width: 380px) {
@@ -232,6 +302,14 @@ canvas#field {
   }
   .ticker-bar {
     top: 54px;
+  }
+  .stat-item {
+    height: 24px;
+    padding: 0 7px;
+    font-size: 10px;
+  }
+  .stat-icon {
+    font-size: 11px;
   }
 }
 
@@ -267,11 +345,24 @@ canvas#field {
     bottom: 8px;
     right: 8px;
   }
+  .site-stats {
+    bottom: 8px;
+    left: 8px;
+    gap: 5px;
+  }
+  .stat-item {
+    height: 22px;
+    padding: 0 7px;
+    font-size: 9px;
+  }
+  .stat-icon {
+    font-size: 10px;
+  }
 }
 
 /* avoid the double-tap-to-zoom gesture delay/ghost-tap on touch devices —
    this is a passive live visualization, not scrollable text content, so
    there's nothing lost by treating taps as immediate */
-.hud, .ticker-bar, .music-toggle {
+.hud, .ticker-bar, .music-toggle, .site-stats {
   touch-action: manipulation;
 }

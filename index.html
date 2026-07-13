@@ -35,6 +35,19 @@
   <button id="musicToggle" class="music-toggle" title="Toggle music" aria-label="Toggle music">🔇</button>
   <audio id="bgMusic" src="assets/audio/battle-of-skull-island.mp3" loop preload="auto"></audio>
 
+  <div class="site-stats" id="siteStats">
+    <span class="stat-item stat-visits" title="Просмотры">
+      <span class="stat-icon">👁</span><span class="stat-count" id="visitCount">--</span>
+    </span>
+    <button class="stat-item stat-vote stat-like" id="likeBtn" title="Нравится" aria-label="Like">
+      <span class="stat-icon">👍</span><span class="stat-count" id="likeCount">--</span>
+    </button>
+    <button class="stat-item stat-vote stat-dislike" id="dislikeBtn" title="Не нравится" aria-label="Dislike">
+      <span class="stat-icon">👎</span><span class="stat-count" id="dislikeCount">--</span>
+    </button>
+  </div>
+
   <script src="script.js"></script>
+  <script src="stats.js"></script>
 </body>
 </html>

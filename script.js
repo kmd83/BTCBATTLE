@@ -451,18 +451,22 @@ initMortars();
 // sword the instant the cannon fires (see tryPlayMortarShot).
 function layoutCannonGuards() {
   const dir = { [TEAM.LONG]: 1, [TEAM.SHORT]: -1 };
+  // pushed further out (was 20px) and dropped a bit lower (was 4px) so the
+  // guard's sprite footprint clears the mortar carriage instead of
+  // overlapping it — the two sprites have a lot of transparent padding
+  // baked into each frame, so a purely horizontal 20px gap wasn't enough
   longMortars.forEach((m, i) => {
     const g = longCannonGuards[i];
     if (!g) return;
-    g.baseX = m.baseX + dir[TEAM.LONG] * 20 * fieldScale;
-    g.baseY = m.baseY + 4 * fieldScale;
+    g.baseX = m.baseX + dir[TEAM.LONG] * 36 * fieldScale;
+    g.baseY = m.baseY + 14 * fieldScale;
     if (g.state === 'idle') { g.x = g.baseX; g.y = g.baseY; }
   });
   shortMortars.forEach((m, i) => {
     const g = shortCannonGuards[i];
     if (!g) return;
-    g.baseX = m.baseX + dir[TEAM.SHORT] * 20 * fieldScale;
-    g.baseY = m.baseY + 4 * fieldScale;
+    g.baseX = m.baseX + dir[TEAM.SHORT] * 36 * fieldScale;
+    g.baseY = m.baseY + 14 * fieldScale;
     if (g.state === 'idle') { g.x = g.baseX; g.y = g.baseY; }
   });
 }

@@ -25,10 +25,59 @@ canvas#field {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
-  padding: max(14px, env(safe-area-inset-top)) max(28px, env(safe-area-inset-right)) 14px max(28px, env(safe-area-inset-left));
+  /* extra top padding (base + 34px) leaves clear room for .live-badge, which
+     sits in the top-left corner above the "BTC BOUGHT" label */
+  padding: calc(max(14px, env(safe-area-inset-top)) + 34px) max(28px, env(safe-area-inset-right)) 14px max(28px, env(safe-area-inset-left));
   z-index: 10;
   pointer-events: none;
   text-shadow: 0 0 8px rgba(0,0,0,0.9), 0 2px 2px rgba(0,0,0,0.8);
+}
+
+/* "this is a live stream" indicator, pinned in the top-left corner above the
+   HUD text — the dot only turns green and pulses once we actually have a
+   live trade feed flowing (see updateStatus() in script.js); otherwise it
+   sits dim/grey while we're still connecting */
+.live-badge {
+  position: absolute;
+  top: max(10px, env(safe-area-inset-top));
+  left: max(14px, env(safe-area-inset-left));
+  z-index: 21;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 12px 0 10px;
+  border-radius: 13px;
+  border: 1px solid rgba(77, 255, 77, 0.4);
+  background: rgba(10, 20, 10, 0.65);
+  backdrop-filter: blur(2px);
+  font-family: 'Share Tech Mono', monospace;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 2px;
+  color: #cfe8cf;
+  pointer-events: none;
+  text-shadow: 0 0 8px rgba(0,0,0,0.9), 0 2px 2px rgba(0,0,0,0.8);
+}
+
+.live-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #666;
+  flex-shrink: 0;
+}
+
+.live-badge.connected .live-dot {
+  background: #4dff4d;
+  box-shadow: 0 0 6px #4dff4d;
+  animation: livePulse 1.4s ease-in-out infinite;
+}
+
+@keyframes livePulse {
+  0%   { box-shadow: 0 0 0 0 rgba(77, 255, 77, 0.6); }
+  70%  { box-shadow: 0 0 0 6px rgba(77, 255, 77, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(77, 255, 77, 0); }
 }
 
 .hud-side {
@@ -224,7 +273,20 @@ button.stat-item:disabled {
    on narrow phone screens instead of the desktop sizes clipping/wrapping */
 @media (max-width: 700px) {
   .hud {
-    padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+    padding: calc(max(8px, env(safe-area-inset-top)) + 26px) max(8px, env(safe-area-inset-right)) 8px max(8px, env(safe-area-inset-left));
+  }
+  .live-badge {
+    top: max(8px, env(safe-area-inset-top));
+    left: 8px;
+    height: 20px;
+    padding: 0 9px 0 8px;
+    gap: 5px;
+    font-size: 10px;
+    letter-spacing: 1.5px;
+  }
+  .live-dot {
+    width: 6px;
+    height: 6px;
   }
   .hud-side {
     min-width: 0;
@@ -311,13 +373,37 @@ button.stat-item:disabled {
   .stat-icon {
     font-size: 11px;
   }
+  .live-badge {
+    height: 17px;
+    padding: 0 7px 0 6px;
+    gap: 4px;
+    font-size: 8px;
+    letter-spacing: 1px;
+  }
+  .live-dot {
+    width: 5px;
+    height: 5px;
+  }
 }
 
 /* short/landscape phones (e.g. rotated) — vertical space is the scarce
    resource here, not width, so compact everything's height instead */
 @media (max-height: 420px) and (orientation: landscape) {
   .hud {
-    padding: 4px 12px;
+    padding: calc(4px + 20px) 12px 4px 12px;
+  }
+  .live-badge {
+    top: 4px;
+    left: 8px;
+    height: 16px;
+    padding: 0 6px;
+    gap: 4px;
+    font-size: 8px;
+    letter-spacing: 1px;
+  }
+  .live-dot {
+    width: 5px;
+    height: 5px;
   }
   .hud-value {
     font-size: 16px;

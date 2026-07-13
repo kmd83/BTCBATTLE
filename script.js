@@ -1640,6 +1640,7 @@ const shortTotalEl = document.getElementById('shortTotal');
 const tickerLineEl = document.getElementById('tickerLine');
 const priceRowEl = document.getElementById('priceRow');
 const statusEl = document.getElementById('status');
+const liveBadgeEl = document.getElementById('liveBadge');
 
 let longTotal = 0;
 let shortTotal = 0;
@@ -1796,6 +1797,10 @@ function ingestTrade(aggId, price, qty, isBuy) {
 function updateStatus() {
   const mode = wsConnected ? 'WebSocket' : (restPolling ? 'REST polling (fallback)' : 'connecting…');
   statusEl.textContent = `live · ${mode} · BTC/USDT`;
+  // top-left LIVE badge: only lights up green/pulsing once trade data is
+  // actually flowing (WS connected or REST fallback active), stays dim grey
+  // while we're still connecting/reconnecting
+  if (liveBadgeEl) liveBadgeEl.classList.toggle('connected', wsConnected || restPolling);
 }
 
 function connectWS() {

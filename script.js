@@ -280,6 +280,8 @@ let longArchers = [];
 let shortArchers = [];
 let longMortars = [];
 let shortMortars = [];
+let longCannonGuards = []; // one sword-armed knight parked beside each mortar, purely decorative
+let shortCannonGuards = [];
 let arrows = [];
 let mortarShells = []; // lobbed mortar projectiles, arc from launcher to target
 let explosions = []; // brief blast burst drawn where a mortar shell lands
@@ -363,12 +365,12 @@ function layoutArchers() {
   const minY = horizonY + HORIZON_MARGIN; // backline never stands above the horizon either
 
   longArchers.forEach((a) => {
-    a.baseX = W * 0.02 + a.index * 6 * fieldScale;
+    a.baseX = W * 0.055 + a.index * 6 * fieldScale;
     a.baseY = Math.max(minY, centerY - (a.index - (ARCHERS_PER_SIDE - 1) / 2) * rowGap * 1.4);
     a.x = a.baseX; a.y = a.baseY;
   });
   shortArchers.forEach((a) => {
-    a.baseX = W * 0.98 - a.index * 6 * fieldScale;
+    a.baseX = W * 0.945 - a.index * 6 * fieldScale;
     a.baseY = Math.max(minY, centerY - (a.index - (ARCHERS_PER_SIDE - 1) / 2) * rowGap * 1.4);
     a.x = a.baseX; a.y = a.baseY;
   });
@@ -393,15 +395,16 @@ function layoutMortars() {
   const minY = horizonY + HORIZON_MARGIN; // mortar crew never stands above the horizon either
 
   longMortars.forEach((m) => {
-    m.baseX = W * 0.05;
+    m.baseX = W * 0.09;
     m.baseY = Math.max(minY, centerY - 6);
     m.x = m.baseX; m.y = m.baseY;
   });
   shortMortars.forEach((m) => {
-    m.baseX = W * 0.95;
+    m.baseX = W * 0.91;
     m.baseY = Math.max(minY, centerY - 6);
     m.x = m.baseX; m.y = m.baseY;
   });
+  layoutCannonGuards();
 }
 
 function initMortars() {
@@ -414,6 +417,69 @@ function initMortars() {
   layoutMortars();
 }
 initMortars();
+
+// each mortar keeps a single dedicated knight standing guard right beside it —
+// reuses the Knight class/sprites/drawKnight so it looks identical to the
+// melee troops, but it's parked outside longKnights/shortKnights so duels
+// never pick it as a combatant. It idles beside the cannon and swings its
+// sword the instant the cannon fires (see tryPlayMortarShot).
+function layoutCannonGuards() {
+  const dir = { [TEAM.LONG]: 1, [TEAM.SHORT]: -1 };
+  longMortars.forEach((m, i) => {
+    const g = longCannonGuards[i];
+    if (!g) return;
+    g.baseX = m.baseX + dir[TEAM.LONG] * 20 * fieldScale;
+    g.baseY = m.baseY + 4 * fieldScale;
+    if (g.state === 'idle') { g.x = g.baseX; g.y = g.baseY; }
+  });
+  shortMortars.forEach((m, i) => {
+    const g = shortCannonGuards[i];
+    if (!g) return;
+    g.baseX = m.baseX + dir[TEAM.SHORT] * 20 * fieldScale;
+    g.baseY = m.baseY + 4 * fieldScale;
+    if (g.state === 'idle') { g.x = g.baseX; g.y = g.baseY; }
+  });
+}
+
+function initCannonGuards() {
+  longCannonGuards = [];
+  shortCannonGuards = [];
+  for (let i = 0; i < MORTARS_PER_SIDE; i++) {
+    longCannonGuards.push(new Knight(TEAM.LONG, 0, 0));
+    shortCannonGuards.push(new Knight(TEAM.SHORT, 0, 0));
+  }
+  layoutCannonGuards();
+}
+initCannonGuards();
+
+// simplified knight update for the cannon guard: no duel lanes, no
+// formation advance/retreat, no wander — it just idles in place and, when
+// nudged into 'lunge'/'clash' by a cannon shot, plays the sword-swing
+// animation before settling back into position.
+function updateCannonGuard(k, dt) {
+  k.bob += dt * 0.004;
+  k.timer += dt;
+  if (k.flash > 0) k.flash -= dt * 0.004;
+
+  switch (k.state) {
+    case 'idle':
+      k.x += (k.baseX - k.x) * 0.15;
+      k.y += (k.baseY - k.y) * 0.15;
+      k.scale += (1 - k.scale) * 0.1;
+      k.opacity += (1 - k.opacity) * 0.1;
+      break;
+    case 'lunge': {
+      const dir = k.team === TEAM.LONG ? 1 : -1;
+      const targetX = k.baseX + dir * 7;
+      k.x += (targetX - k.x) * 0.35;
+      if (k.timer > 130) { k.state = 'clash'; k.timer = 0; }
+      break;
+    }
+    case 'clash':
+      if (k.timer > 170) { k.state = 'idle'; k.timer = 0; }
+      break;
+  }
+}
 
 // ---------- Battlefield background (nature art, procedural fallback while it loads) ----------
 function generateGroundTexture() {
@@ -1210,12 +1276,13 @@ function frame(t) {
   [...longKnights, ...shortKnights].forEach((k) => updateKnight(k, dt));
   [...longArchers, ...shortArchers].forEach((a) => updateArcher(a, dt));
   [...longMortars, ...shortMortars].forEach((m) => updateMortar(m, dt));
+  [...longCannonGuards, ...shortCannonGuards].forEach((k) => updateCannonGuard(k, dt));
   updateArrows(dt);
   updateMortarShells(dt);
   updateExplosions(dt);
   updateSouls(dt);
 
-  const all = [...longKnights, ...shortKnights, ...longArchers, ...shortArchers, ...longMortars, ...shortMortars].sort((a, b) => a.y - b.y);
+  const all = [...longKnights, ...shortKnights, ...longArchers, ...shortArchers, ...longMortars, ...shortMortars, ...longCannonGuards, ...shortCannonGuards].sort((a, b) => a.y - b.y);
   all.forEach((e) => {
     if (e instanceof Archer) drawArcher(e);
     else if (e instanceof Mortar) drawMortar(e);
@@ -1396,6 +1463,11 @@ function tryPlayMortarShot(winnerTeam, magnitude) {
     mortar.state = 'fire';
     mortar.timer = 0;
     mortar.flash = 1;
+
+    // the guard standing beside this cannon swings his sword the instant it fires
+    const guards = mortar.team === TEAM.LONG ? longCannonGuards : shortCannonGuards;
+    const guard = guards[mortar.index];
+    if (guard) { guard.state = 'lunge'; guard.timer = 0; }
 
     const dir = mortar.team === TEAM.LONG ? 1 : -1;
     const dist = Math.hypot(target.x - mortar.x, target.y - mortar.y);

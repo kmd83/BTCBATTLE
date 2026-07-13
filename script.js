@@ -78,12 +78,29 @@ function computeHorizon() {
   horizonY = window.innerHeight * 0.48;
 }
 
+// ---------- Mobile / small-screen responsiveness ----------
+// desktop-width battlefields (>=1100px) use full-size spacing between the
+// ~22 units per side; narrower viewports (phones/tablets) compact both the
+// formation spacing AND the character size together, clamped so nothing
+// shrinks into an unreadable blob or overlaps into a mess on a phone screen
+let fieldScale = 1;
+function computeFieldScale() {
+  const W = window.innerWidth;
+  fieldScale = Math.max(0.55, Math.min(1, W / 1100));
+  UNIT_SIZE_MULT = 0.8 * (0.5 + 0.5 * fieldScale);
+}
+
+// devicePixelRatio is uncapped on some phones (2.5-3x), which would blow up
+// the canvas to millions of extra pixels for no visible benefit and tank
+// frame rate — cap it so mobile GPUs stay smooth
 function resize() {
-  canvas.width = window.innerWidth * devicePixelRatio;
-  canvas.height = window.innerHeight * devicePixelRatio;
+  const DPR = Math.min(window.devicePixelRatio || 1, 2);
+  canvas.width = window.innerWidth * DPR;
+  canvas.height = window.innerHeight * DPR;
   canvas.style.width = window.innerWidth + 'px';
   canvas.style.height = window.innerHeight + 'px';
-  ctx.setTransform(devicePixelRatio, 0, 0, devicePixelRatio, 0, 0);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  computeFieldScale();
   computeHorizon(); // must run before layout, since formations/lanes clamp against it
   layoutArmies();
   layoutArchers();
@@ -93,6 +110,10 @@ function resize() {
   generateGroundTexture();
 }
 window.addEventListener('resize', resize);
+// mobile browsers can report stale innerWidth/innerHeight in the same tick
+// an orientation change fires, before the chrome (address bar etc.) has
+// finished reflowing — re-run resize a beat later to catch the settled size
+window.addEventListener('orientationchange', () => setTimeout(resize, 200));
 
 // ---------- Config ----------
 const TEAM = { LONG: 'long', SHORT: 'short' };
@@ -110,7 +131,8 @@ const SKELETON_SIZE_MULT = 1.3; // skeletons stand 30% taller than a regular (al
 const HORIZON_MARGIN = 90; // keep every unit's whole body (not just its feet) below the horizon line —
                             // large enough to clear a full-height knight sprite even at max combat scale,
                             // so units read as standing in the grass instead of hovering near the tree line
-const UNIT_SIZE_MULT = 0.8; // -20% overall character size (applies to sprite + procedural rendering)
+let UNIT_SIZE_MULT = 0.8; // -20% overall character size baseline (applies to sprite + procedural
+                           // rendering); recomputed responsively per-screen-width by computeFieldScale()
 const MAX_BATTLE_SHIFT = 130; // px the melee front line can push toward either side as one team dominates
 
 // ---------- Pirate sprites (CraftPix free pack) ----------
@@ -298,7 +320,7 @@ function updateBattleShift(dt) {
 function computeLanes() {
   const H = window.innerHeight;
   const centerY = H * 0.60;
-  const spread = 64;
+  const spread = 64 * fieldScale; // duel lanes pack closer together on narrow screens
   const minY = horizonY + HORIZON_MARGIN; // never let a duel meeting point land above the horizon
   laneYs = [];
   for (let i = 0; i < N_LANES; i++) {
@@ -315,8 +337,8 @@ function findLane() {
 function layoutArmies() {
   const W = window.innerWidth, H = window.innerHeight;
   const centerY = H * 0.62;
-  const rowGap = 46;
-  const colGap = 44;
+  const rowGap = 46 * fieldScale;
+  const colGap = 44 * fieldScale;
   const minY = horizonY + HORIZON_MARGIN; // formation rows never stand above the horizon
 
   longKnights.forEach((k) => {
@@ -347,16 +369,16 @@ initArmies();
 function layoutArchers() {
   const W = window.innerWidth, H = window.innerHeight;
   const centerY = H * 0.62;
-  const rowGap = 40;
+  const rowGap = 40 * fieldScale;
   const minY = horizonY + HORIZON_MARGIN; // backline never stands above the horizon either
 
   longArchers.forEach((a) => {
-    a.baseX = W * 0.02 + a.index * 6;
+    a.baseX = W * 0.02 + a.index * 6 * fieldScale;
     a.baseY = Math.max(minY, centerY - (a.index - (ARCHERS_PER_SIDE - 1) / 2) * rowGap * 1.4);
     a.x = a.baseX; a.y = a.baseY;
   });
   shortArchers.forEach((a) => {
-    a.baseX = W * 0.98 - a.index * 6;
+    a.baseX = W * 0.98 - a.index * 6 * fieldScale;
     a.baseY = Math.max(minY, centerY - (a.index - (ARCHERS_PER_SIDE - 1) / 2) * rowGap * 1.4);
     a.x = a.baseX; a.y = a.baseY;
   });
@@ -408,7 +430,7 @@ initMortars();
 function layoutSkeletons() {
   const W = window.innerWidth, H = window.innerHeight;
   const centerY = H * 0.62;
-  const rowGap = 52;
+  const rowGap = 52 * fieldScale;
   const minY = horizonY + HORIZON_MARGIN; // skeleton vanguard never stands above the horizon either
 
   longSkeletons.forEach((k, i) => {

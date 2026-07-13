@@ -131,6 +131,11 @@ let UNIT_SIZE_MULT = 0.8; // -20% overall character size baseline (applies to sp
                            // rendering); recomputed responsively per-screen-width by computeFieldScale()
 const MAX_BATTLE_SHIFT = 130; // px the melee front line can push toward either side as one team dominates
 const MAX_FORMATION_ADVANCE = 90; // px each army's whole formation pushes forward when winning / pulls back when losing
+const KNIGHT_CREEP_CAP = 260; // px (pre-fieldScale) an idle knight will creep past its home formation slot toward the enemy when nothing is blocking it
+const KNIGHT_CONTACT_GAP = 30; // desired stand-off gap (px, pre-fieldScale) an idle knight holds from the nearest facing enemy once it's caught up to them
+const KNIGHT_CONTACT_RANGE = 44; // px (pre-fieldScale) within which a facing enemy counts as "in contact" and triggers the ambient sword-swing loop
+const KNIGHT_LANE_BAND = 34; // px (pre-fieldScale) vertical tolerance for treating another knight as "in the same lane" for front-line/contact purposes
+const KNIGHT_MIN_SEP = 26; // px (pre-fieldScale) minimum center-to-center distance kept between any two idle knights, teammates or foes alike
 
 // ---------- Pirate sprites (CraftPix free pack) ----------
 // Melee knights use the cutlass ATTACK animation. Ranged "archer" units get
@@ -200,6 +205,12 @@ function spriteFrameForKnight(k) {
       if (k.timer < 150) return { state: 'HURT', frame: Math.min(6, Math.floor(k.timer / 21.4)) };
       return { state: 'DIE', frame: Math.min(6, Math.floor((k.timer - 150) / 50)) };
     case 'idle':
+      // ambient (non-lethal) skirmish: swings its blade in place whenever it's
+      // standing in contact with an enemy, walks while still closing the gap,
+      // and otherwise plays a plain idle loop
+      if (k.swinging) return { state: 'ATTACK', frame: Math.min(6, Math.floor(k.swingT / 45)) };
+      if (k.walking) return { state: 'WALK', frame: Math.floor(((T + phase) / 90) % SPRITE_FRAME_COUNT) };
+      return { state: 'IDLE', frame: Math.floor(((T + phase) / 160) % SPRITE_FRAME_COUNT) };
     case 'respawn':
     default:
       return { state: 'IDLE', frame: Math.floor(((T + phase) / 160) % SPRITE_FRAME_COUNT) };
@@ -239,6 +250,18 @@ class Knight {
     this.flash = 0;
     this.reserved = false; // true while an in-flight arrow/bullet is already targeting this knight
     this.wanderSeed = Math.random() * 1000; // offsets this knight's idle roaming so the whole line doesn't sway in sync
+
+    // ambient front-line skirmish (non-lethal — actual kills only ever come
+    // from a trade-driven duel via playDuel): frontTargetX/inContact are
+    // recomputed every frame by resolveFrontLine(); walking/swinging just
+    // drive which sprite animation plays while an 'idle' knight advances
+    // toward / spars with a facing enemy.
+    this.frontTargetX = 0;
+    this.inContact = false;
+    this.walking = false;
+    this.swinging = false;
+    this.swingT = 0;
+    this.swingCooldown = 400 + Math.random() * 700;
   }
 }
 
@@ -333,12 +356,15 @@ function layoutArmies() {
   const colGap = 44 * fieldScale;
   const minY = horizonY + HORIZON_MARGIN; // formation rows never stand above the horizon
 
+  // knight column 0 starts well clear of the archer/mortar/cannon-guard
+  // backline (which occupies roughly 0.05-0.12W) so melee spawns never
+  // overlap the ranged units behind them
   longKnights.forEach((k) => {
-    k.baseX = W * 0.08 + k.col * colGap;
+    k.baseX = W * 0.17 + k.col * colGap;
     k.baseY = Math.max(minY, centerY - k.row * rowGap * 0.5 + (k.row % 2 === 0 ? 0 : rowGap * 0.25));
   });
   shortKnights.forEach((k) => {
-    k.baseX = W * 0.92 - k.col * colGap;
+    k.baseX = W * 0.83 - k.col * colGap;
     k.baseY = Math.max(minY, centerY - k.row * rowGap * 0.5 + (k.row % 2 === 0 ? 0 : rowGap * 0.25));
   });
 }
@@ -1184,6 +1210,74 @@ function drawSouls() {
   });
 }
 
+// ---------- Ambient front-line advance (non-lethal — real kills only ever
+// come from a trade-driven duel via playDuel) ----------
+// Every 'idle' knight slowly creeps toward the enemy after spawning. Once it
+// closes to within KNIGHT_CONTACT_RANGE of a facing foe in roughly the same
+// lane, it holds its ground there (a standing sword-fight, see the 'idle'
+// case in updateKnight) instead of walking through/past them. Recomputed
+// once per frame, before updateKnight runs, so every knight's frontTargetX
+// reflects everyone else's *current* position.
+function resolveFrontLine() {
+  const longField = longKnights.filter((k) => k.state === 'idle');
+  const shortField = shortKnights.filter((k) => k.state === 'idle');
+
+  const resolve = (list, foes, dirSign) => {
+    const contactGap = KNIGHT_CONTACT_GAP * fieldScale;
+    const laneBand = KNIGHT_LANE_BAND * fieldScale;
+    list.forEach((k) => {
+      const homeX = k.baseX + formationAdvance;
+      let targetX = homeX + dirSign * KNIGHT_CREEP_CAP * fieldScale;
+      let inContact = false;
+
+      let nearest = null, nearestScore = Infinity;
+      for (const f of foes) {
+        const dy = f.y - k.y;
+        if (Math.abs(dy) > laneBand * 2.5) continue; // ignore foes several rows away entirely
+        const score = Math.abs(dy) * 2.2 + Math.abs(f.x - k.x);
+        if (score < nearestScore) { nearestScore = score; nearest = f; }
+      }
+
+      if (nearest) {
+        const standoffX = nearest.x - dirSign * contactGap;
+        targetX = dirSign > 0 ? Math.min(targetX, standoffX) : Math.max(targetX, standoffX);
+        targetX = dirSign > 0 ? Math.max(targetX, homeX) : Math.min(targetX, homeX);
+        const dist = Math.hypot(nearest.x - k.x, nearest.y - k.y);
+        inContact = dist < KNIGHT_CONTACT_RANGE * fieldScale && Math.abs(nearest.y - k.y) < laneBand;
+      }
+
+      k.frontTargetX = targetX;
+      k.inContact = inContact;
+    });
+  };
+
+  resolve(longField, shortField, 1);
+  resolve(shortField, longField, -1);
+}
+
+// keeps idle knights from ever visually overlapping — teammates and foes
+// alike — as they creep forward and pack up against the front line
+function resolveKnightSeparation() {
+  const all = [...longKnights, ...shortKnights].filter((k) => k.state === 'idle');
+  const minSep = KNIGHT_MIN_SEP * fieldScale;
+  for (let i = 0; i < all.length; i++) {
+    for (let j = i + 1; j < all.length; j++) {
+      const a = all[i], b = all[j];
+      const dx = b.x - a.x, dy = b.y - a.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist > 0 && dist < minSep) {
+        const push = (minSep - dist) / 2;
+        const nx = dx / dist, ny = dy / dist;
+        a.x -= nx * push; a.y -= ny * push;
+        b.x += nx * push; b.y += ny * push;
+      } else if (dist === 0) {
+        // exact overlap (e.g. both just spawned at the same point) — nudge apart randomly
+        a.x -= 0.5; b.x += 0.5;
+      }
+    }
+  }
+}
+
 // ---------- Animation / combat loop ----------
 function updateKnight(k, dt) {
   k.bob += dt * 0.004;
@@ -1192,19 +1286,38 @@ function updateKnight(k, dt) {
 
   switch (k.state) {
     case 'idle': {
-      // knights don't freeze on a fixed formation line: the whole army eases
-      // toward its home column offset by the current formationAdvance (pushed
-      // forward across the field while winning, pulled back while losing),
-      // plus a slow per-knight wander so the line reads as living/roaming
-      // rather than a rigid grid.
-      const wx = Math.sin(k.bob * 0.6 + k.wanderSeed) * 10 * fieldScale;
+      // knights don't freeze on a fixed formation line: they slowly creep
+      // toward the enemy after spawning (resolveFrontLine sets frontTargetX
+      // each frame), holding position once they're in contact with a facing
+      // foe instead of walking through them — plus a slow per-knight wander
+      // so the line reads as living/roaming rather than a rigid grid.
+      const wx = Math.sin(k.bob * 0.6 + k.wanderSeed) * 6 * fieldScale;
       const wy = Math.cos(k.bob * 0.45 + k.wanderSeed) * 6 * fieldScale;
-      const targetX = k.baseX + formationAdvance + wx;
+      const targetX = k.frontTargetX + wx;
       const targetY = k.baseY + wy;
-      k.x += (targetX - k.x) * 0.06;
-      k.y += (targetY - k.y) * 0.06;
+      k.x += (targetX - k.x) * 0.045;
+      k.y += (targetY - k.y) * 0.045;
       k.scale += (1 - k.scale) * 0.1;
       k.opacity += (1 - k.opacity) * 0.1;
+      k.walking = Math.hypot(targetX - k.x, targetY - k.y) > 3 && !k.inContact;
+
+      // ambient, non-lethal sword-swing loop while standing toe-to-toe with
+      // a facing enemy — actual kills are decided purely by trade volume via
+      // playDuel, this is just visual flavor for the standoff
+      if (k.inContact) {
+        k.swingCooldown -= dt;
+        if (!k.swinging && k.swingCooldown <= 0) {
+          k.swinging = true;
+          k.swingT = 0;
+        }
+      }
+      if (k.swinging) {
+        k.swingT += dt;
+        if (k.swingT > 300) {
+          k.swinging = false;
+          k.swingCooldown = 450 + Math.random() * 750;
+        }
+      }
       break;
     }
     case 'approach':
@@ -1273,7 +1386,9 @@ function frame(t) {
   updateBattleShift(dt);
   drawGround();
 
+  resolveFrontLine();
   [...longKnights, ...shortKnights].forEach((k) => updateKnight(k, dt));
+  resolveKnightSeparation();
   [...longArchers, ...shortArchers].forEach((a) => updateArcher(a, dt));
   [...longMortars, ...shortMortars].forEach((m) => updateMortar(m, dt));
   [...longCannonGuards, ...shortCannonGuards].forEach((k) => updateCannonGuard(k, dt));

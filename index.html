@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Liquidation Battlefield</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;900&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="hud">
+    <div class="hud-side hud-long">
+      <div class="hud-label">BTC BOUGHT</div>
+      <div class="hud-value" id="longTotal">$0</div>
+    </div>
+    <div class="hud-center">
+      <div class="hud-title">BTC BATTLEFIELD</div>
+      <div class="price-row" id="priceRow">BTC/USDT --</div>
+      <div class="hud-sub" id="status">connecting…</div>
+    </div>
+    <div class="hud-side hud-short">
+      <div class="hud-label">BTC SOLD</div>
+      <div class="hud-value" id="shortTotal">$0</div>
+    </div>
+  </div>
+
+  <div class="ticker-bar">
+    <span id="tickerLine" class="ticker-line">waiting for trades…</span>
+  </div>
+
+  <canvas id="field"></canvas>
+
+  <button id="musicToggle" class="music-toggle" title="Toggle music" aria-label="Toggle music">🔇</button>
+  <audio id="bgMusic" src="assets/audio/battle-of-skull-island.mp3" loop preload="auto"></audio>
+
+  <script src="script.js"></script>
+</body>
+</html>

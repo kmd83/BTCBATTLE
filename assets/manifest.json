@@ -1,0 +1,24 @@
+{
+  "pirate_buy": {
+    "frameWidth": 289,
+    "frameHeight": 220,
+    "states": {
+      "IDLE": 7,
+      "WALK": 7,
+      "ATTACK": 7,
+      "HURT": 7,
+      "DIE": 7
+    }
+  },
+  "pirate_sell": {
+    "frameWidth": 296,
+    "frameHeight": 220,
+    "states": {
+      "IDLE": 7,
+      "WALK": 7,
+      "ATTACK": 7,
+      "HURT": 7,
+      "DIE": 7
+    }
+  }
+}

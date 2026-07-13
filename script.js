@@ -105,7 +105,6 @@ function resize() {
   layoutArmies();
   layoutArchers();
   layoutMortars();
-  layoutSkeletons();
   computeLanes();
   generateGroundTexture();
 }
@@ -126,14 +125,13 @@ const N_LANES = 5;   // parallel meeting points near the center where duels happ
 const MEET_GAP = 24; // how close (px, center-to-center) the two duelists stop from the centerline
 const ARCHERS_PER_SIDE = 4; // backline ranged units, only triggered by bigger trades
 const MORTARS_PER_SIDE = 1; // one small mortar per side, stationed just ahead of the gunners
-const SKELETON_PER_SIDE = 3; // max concurrently-alive skeleton heroes per side
-const SKELETON_SIZE_MULT = 1.3; // skeletons stand 30% taller than a regular (already -20%) knight
 const HORIZON_MARGIN = 90; // keep every unit's whole body (not just its feet) below the horizon line —
                             // large enough to clear a full-height knight sprite even at max combat scale,
                             // so units read as standing in the grass instead of hovering near the tree line
 let UNIT_SIZE_MULT = 0.8; // -20% overall character size baseline (applies to sprite + procedural
                            // rendering); recomputed responsively per-screen-width by computeFieldScale()
 const MAX_BATTLE_SHIFT = 130; // px the melee front line can push toward either side as one team dominates
+const MAX_FORMATION_ADVANCE = 90; // px each army's whole formation pushes forward when winning / pulls back when losing
 
 // ---------- Pirate sprites (CraftPix free pack) ----------
 // Melee knights use the cutlass ATTACK animation. Ranged "archer" units get
@@ -241,20 +239,7 @@ class Knight {
     this.opacity = 1;
     this.flash = 0;
     this.reserved = false; // true while an in-flight arrow/bullet is already targeting this knight
-  }
-}
-
-// ---------- Skeleton entity (super-heavy hero unit) ----------
-// Reuses the exact same state machine as a regular Knight (idle/approach/
-// lunge/clash/return/die/respawn via updateKnight), just bigger and drawn
-// with its own procedural bone-white look. It can freely join normal sword
-// duels as an attacker, but normal duels/pistols/mortars never pick one as a
-// target — only a dedicated whale-sized trade (SKELETON_THRESHOLD_BTC) can
-// kill it, via tryPlaySkeletonKill().
-class Skeleton extends Knight {
-  constructor(team, index) {
-    super(team, index, 0);
-    this.isSkeleton = true;
+    this.wanderSeed = Math.random() * 1000; // offsets this knight's idle roaming so the whole line doesn't sway in sync
   }
 }
 
@@ -296,8 +281,6 @@ let longArchers = [];
 let shortArchers = [];
 let longMortars = [];
 let shortMortars = [];
-let longSkeletons = [];
-let shortSkeletons = [];
 let arrows = [];
 let mortarShells = []; // lobbed mortar projectiles, arc from launcher to target
 let explosions = []; // brief blast burst drawn where a mortar shell lands
@@ -310,11 +293,19 @@ let laneBusy = new Array(N_LANES).fill(false);
 // visibly into the losing side's territory over time
 let battleShiftX = 0;
 let battleShiftTarget = 0;
+// whole-formation advance/retreat: eases toward the same dominance value as
+// battleShiftX, but pushes each army's *home* standing position (not just the
+// duel meeting point) — the winning side's line creeps forward across the
+// field, the losing side's line falls back, independent of any single duel.
+let formationAdvance = 0;
+let formationAdvanceTarget = 0;
 function updateBattleShift(dt) {
   const total = longTotal + shortTotal;
   const advantage = total > 0 ? (longTotal - shortTotal) / total : 0; // -1 (short dominant) .. 1 (long dominant)
   battleShiftTarget = advantage * MAX_BATTLE_SHIFT;
   battleShiftX += (battleShiftTarget - battleShiftX) * Math.min(1, dt / 4000);
+  formationAdvanceTarget = advantage * MAX_FORMATION_ADVANCE * fieldScale;
+  formationAdvance += (formationAdvanceTarget - formationAdvance) * Math.min(1, dt / 3000);
 }
 
 function computeLanes() {
@@ -424,35 +415,6 @@ function initMortars() {
   layoutMortars();
 }
 initMortars();
-
-// the skeleton heroes stand even further forward than the regular melee
-// formation — a vanguard line that's the first thing the enemy sees
-function layoutSkeletons() {
-  const W = window.innerWidth, H = window.innerHeight;
-  const centerY = H * 0.62;
-  const rowGap = 52 * fieldScale;
-  const minY = horizonY + HORIZON_MARGIN; // skeleton vanguard never stands above the horizon either
-
-  longSkeletons.forEach((k, i) => {
-    k.baseX = W * 0.20;
-    k.baseY = Math.max(minY, centerY - (i - (SKELETON_PER_SIDE - 1) / 2) * rowGap);
-  });
-  shortSkeletons.forEach((k, i) => {
-    k.baseX = W * 0.80;
-    k.baseY = Math.max(minY, centerY - (i - (SKELETON_PER_SIDE - 1) / 2) * rowGap);
-  });
-}
-
-function initSkeletons() {
-  longSkeletons = [];
-  shortSkeletons = [];
-  for (let i = 0; i < SKELETON_PER_SIDE; i++) {
-    longSkeletons.push(new Skeleton(TEAM.LONG, i));
-    shortSkeletons.push(new Skeleton(TEAM.SHORT, i));
-  }
-  layoutSkeletons();
-}
-initSkeletons();
 
 // ---------- Battlefield background (nature art, procedural fallback while it loads) ----------
 function generateGroundTexture() {
@@ -677,132 +639,6 @@ function drawKnightProcedural(k) {
     ctx.save();
     ctx.globalAlpha = k.flash;
     ctx.translate(14, -14);
-    ctx.fillStyle = '#fff6c8';
-    for (let a = 0; a < 6; a++) {
-      ctx.save();
-      ctx.rotate((a / 6) * Math.PI * 2);
-      ctx.fillRect(-1, 0, 2, 10);
-      ctx.restore();
-    }
-    ctx.restore();
-  }
-
-  ctx.restore();
-}
-
-// ---------- Skeleton hero drawing (always procedural — no sprite set exists
-// for it yet). Reuses the exact Knight state machine (via updateKnight), so
-// the same idle/approach/lunge/clash/die/respawn poses apply, just bigger
-// and bone-white, with glowing team-colored eye sockets. ----------
-function drawSkeleton(k) {
-  const c = COLORS[k.team];
-  const facing = k.team === TEAM.LONG ? 1 : -1;
-
-  ctx.save();
-  ctx.globalAlpha = k.opacity;
-  ctx.translate(k.x, k.y);
-  ctx.scale(facing * k.scale * UNIT_SIZE_MULT * SKELETON_SIZE_MULT, k.scale * UNIT_SIZE_MULT * SKELETON_SIZE_MULT);
-
-  const bob = (k.state === 'idle' || k.state === 'approach') ? Math.sin(k.bob) * 2 : 0;
-  ctx.translate(0, bob);
-
-  // bone legs
-  ctx.strokeStyle = '#e8e2d0';
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(-4, 8); ctx.lineTo(-6, 24);
-  ctx.moveTo(4, 8); ctx.lineTo(6, 24);
-  ctx.stroke();
-
-  // ribcage / torso
-  ctx.fillStyle = '#efe9d8';
-  ctx.beginPath();
-  ctx.moveTo(0, -16);
-  ctx.lineTo(-10, -6);
-  ctx.lineTo(-8, 10);
-  ctx.lineTo(8, 10);
-  ctx.lineTo(10, -6);
-  ctx.closePath();
-  ctx.fill();
-
-  // rib slats
-  ctx.strokeStyle = '#b9b09a';
-  ctx.lineWidth = 1.3;
-  for (let i = 0; i < 4; i++) {
-    const ry = -10 + i * 5;
-    ctx.beginPath();
-    ctx.moveTo(-8 + i * 0.4, ry);
-    ctx.lineTo(8 - i * 0.4, ry);
-    ctx.stroke();
-  }
-
-  // team-color tattered sash over the ribcage
-  ctx.fillStyle = c.body;
-  ctx.beginPath();
-  ctx.moveTo(-9, -6);
-  ctx.lineTo(-3, -14);
-  ctx.lineTo(2, 10);
-  ctx.lineTo(-6, 10);
-  ctx.closePath();
-  ctx.fill();
-
-  // skull head
-  ctx.fillStyle = '#f5f0e0';
-  ctx.beginPath();
-  ctx.arc(0, -24, 9, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(0, -17, 5, 3, 0, 0, Math.PI);
-  ctx.fill();
-
-  // glowing team-colored eye sockets
-  ctx.fillStyle = c.body;
-  ctx.shadowColor = c.body;
-  ctx.shadowBlur = 6;
-  ctx.beginPath();
-  ctx.ellipse(-3.2, -25, 1.8, 2.4, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.ellipse(3.2, -25, 1.8, 2.4, 0, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.shadowBlur = 0;
-
-  // nose notch
-  ctx.fillStyle = '#8f8874';
-  ctx.beginPath();
-  ctx.moveTo(0, -21);
-  ctx.lineTo(-1.4, -18.5);
-  ctx.lineTo(1.4, -18.5);
-  ctx.closePath();
-  ctx.fill();
-
-  // cutlass arm
-  let swordAngle = -0.5;
-  if (k.state === 'lunge') swordAngle = -1.4 + Math.sin(k.timer * 0.06) * 0.5;
-  if (k.state === 'clash') swordAngle = -2.1;
-
-  ctx.save();
-  ctx.translate(9, -8);
-  ctx.rotate(swordAngle);
-  ctx.strokeStyle = '#e8e2d0';
-  ctx.lineWidth = 3;
-  ctx.lineCap = 'round';
-  ctx.beginPath();
-  ctx.moveTo(0, -2);
-  ctx.lineTo(0, 8);
-  ctx.stroke();
-  ctx.fillStyle = '#f0f0f0';
-  ctx.fillRect(-2, -30, 4, 28);
-  ctx.fillStyle = c.dark;
-  ctx.fillRect(-5, -2, 10, 3);
-  ctx.restore();
-
-  // clash flash spark
-  if (k.flash > 0) {
-    ctx.save();
-    ctx.globalAlpha = k.flash;
-    ctx.translate(16, -16);
     ctx.fillStyle = '#fff6c8';
     for (let a = 0; a < 6; a++) {
       ctx.save();
@@ -1292,12 +1128,22 @@ function updateKnight(k, dt) {
   if (k.flash > 0) k.flash -= dt * 0.004;
 
   switch (k.state) {
-    case 'idle':
-      k.x += (k.baseX - k.x) * 0.12;
-      k.y += (k.baseY - k.y) * 0.12;
+    case 'idle': {
+      // knights don't freeze on a fixed formation line: the whole army eases
+      // toward its home column offset by the current formationAdvance (pushed
+      // forward across the field while winning, pulled back while losing),
+      // plus a slow per-knight wander so the line reads as living/roaming
+      // rather than a rigid grid.
+      const wx = Math.sin(k.bob * 0.6 + k.wanderSeed) * 10 * fieldScale;
+      const wy = Math.cos(k.bob * 0.45 + k.wanderSeed) * 6 * fieldScale;
+      const targetX = k.baseX + formationAdvance + wx;
+      const targetY = k.baseY + wy;
+      k.x += (targetX - k.x) * 0.06;
+      k.y += (targetY - k.y) * 0.06;
       k.scale += (1 - k.scale) * 0.1;
       k.opacity += (1 - k.opacity) * 0.1;
       break;
+    }
     case 'approach':
       // walk from formation toward the meeting point at the centerline; the
       // transition to 'lunge'/'clash' is driven externally by playDuel's timers
@@ -1313,24 +1159,22 @@ function updateKnight(k, dt) {
     }
     case 'clash':
       if (k.timer > 140) {
-        // the winner holds the battle line instead of retreating home — a
-        // small jitter keeps repeated survivors in the same lane from
-        // stacking exactly on top of each other
+        // the winner heads back into formation (which itself may now be
+        // advancing into what used to be the meeting point, if their side
+        // keeps winning) instead of freezing at the exact clash spot
         k.state = 'idle';
         k.timer = 0;
-        k.baseX = k.x + (Math.random() - 0.5) * 18;
-        k.baseY = k.y + (Math.random() - 0.5) * 14;
       }
       break;
-    case 'return':
-      k.x += (k.baseX - k.x) * 0.15;
+    case 'return': {
+      const targetX = k.baseX + formationAdvance;
+      k.x += (targetX - k.x) * 0.15;
       k.y += (k.baseY - k.y) * 0.15;
-      if (Math.hypot(k.baseX - k.x, k.baseY - k.y) < 2) {
+      if (Math.hypot(targetX - k.x, k.baseY - k.y) < 2) {
         k.state = 'idle';
-        k.x = k.baseX;
-        k.y = k.baseY;
       }
       break;
+    }
     case 'die':
       // stay down in the fallen pose for a full 2s so the kill actually
       // reads on screen, then fade out quickly right before respawning
@@ -1348,7 +1192,7 @@ function updateKnight(k, dt) {
       }
       break;
     case 'respawn':
-      k.x = k.baseX;
+      k.x = k.baseX + formationAdvance;
       k.y = k.baseY;
       if (k.timer > 400 + Math.random() * 500) {
         k.state = 'idle';
@@ -1366,7 +1210,7 @@ function frame(t) {
   updateBattleShift(dt);
   drawGround();
 
-  [...longKnights, ...shortKnights, ...longSkeletons, ...shortSkeletons].forEach((k) => updateKnight(k, dt));
+  [...longKnights, ...shortKnights].forEach((k) => updateKnight(k, dt));
   [...longArchers, ...shortArchers].forEach((a) => updateArcher(a, dt));
   [...longMortars, ...shortMortars].forEach((m) => updateMortar(m, dt));
   updateArrows(dt);
@@ -1374,11 +1218,10 @@ function frame(t) {
   updateExplosions(dt);
   updateSouls(dt);
 
-  const all = [...longKnights, ...shortKnights, ...longArchers, ...shortArchers, ...longMortars, ...shortMortars, ...longSkeletons, ...shortSkeletons].sort((a, b) => a.y - b.y);
+  const all = [...longKnights, ...shortKnights, ...longArchers, ...shortArchers, ...longMortars, ...shortMortars].sort((a, b) => a.y - b.y);
   all.forEach((e) => {
     if (e instanceof Archer) drawArcher(e);
     else if (e instanceof Mortar) drawMortar(e);
-    else if (e instanceof Skeleton) drawSkeleton(e);
     else drawKnight(e);
   });
 
@@ -1409,7 +1252,6 @@ function pickCombatant(list, preferredStates) {
 let pendingDuels = [];
 let pendingShots = [];
 let pendingMortarShots = [];
-let pendingSkeletonKills = [];
 
 function playDuel(winnerTeam, magnitude) {
   if (!tryPlayDuel(winnerTeam, magnitude)) {
@@ -1418,11 +1260,7 @@ function playDuel(winnerTeam, magnitude) {
 }
 
 function tryPlayDuel(winnerTeam, magnitude) {
-  // skeleton heroes are eligible to step into a normal sword duel as
-  // attackers (they still fight like everyone else), but they never appear
-  // in the *loser* pool below — regular duels can never kill a skeleton,
-  // only a dedicated whale-sized trade can (see tryPlaySkeletonKill)
-  const winners = winnerTeam === TEAM.LONG ? [...longKnights, ...longSkeletons] : [...shortKnights, ...shortSkeletons];
+  const winners = winnerTeam === TEAM.LONG ? longKnights : shortKnights;
   const losers = winnerTeam === TEAM.LONG ? shortKnights : longKnights;
 
   const attacker = pickCombatant(winners, ['idle', 'return']);
@@ -1479,85 +1317,6 @@ function tryPlayDuel(winnerTeam, magnitude) {
       defender.timer = 0;
       defender.flash = 1;
       spawnSoul(defender.x, defender.y);
-      attacker.state = 'clash';
-      attacker.timer = 0;
-      attacker.flash = 1;
-
-      setTimeout(() => {
-        laneBusy[lane] = false;
-      }, 200);
-    }, 180);
-  }, 40);
-
-  return true;
-}
-
-// whale-sized event, only triggered by the single biggest trades
-// (SKELETON_THRESHOLD_BTC): a regular knight from the winning side duels one
-// of the losing side's skeleton heroes — this is the ONLY combat event that
-// is ever allowed to kill a skeleton, since every other event's loser pool
-// deliberately excludes the skeleton arrays
-function playSkeletonKill(winnerTeam, magnitude) {
-  if (!tryPlaySkeletonKill(winnerTeam, magnitude)) {
-    pendingSkeletonKills.push({ winnerTeam, magnitude });
-  }
-}
-
-function tryPlaySkeletonKill(winnerTeam, magnitude) {
-  const winners = winnerTeam === TEAM.LONG ? longKnights : shortKnights;
-  const skeletonLosers = winnerTeam === TEAM.LONG ? shortSkeletons : longSkeletons;
-
-  const attacker = pickCombatant(winners, ['idle', 'return']);
-  const defender = pickCombatant(skeletonLosers, ['idle', 'return']);
-  if (!attacker || !defender) return false;
-
-  const lane = findLane();
-  laneBusy[lane] = true;
-  const meetY = laneYs[lane] ?? window.innerHeight * 0.6;
-  const centerX = window.innerWidth / 2 + battleShiftX;
-  const dirAtk = attacker.team === TEAM.LONG ? 1 : -1;
-  const dirDef = defender.team === TEAM.LONG ? 1 : -1;
-
-  attacker.state = 'approach';
-  attacker.timer = 0;
-  attacker.meetX = centerX - dirAtk * MEET_GAP;
-  attacker.meetY = meetY;
-  attacker.scale = 1 + Math.min(magnitude * 0.3, 0.5);
-
-  defender.state = 'approach';
-  defender.timer = 0;
-  defender.meetX = centerX - dirDef * MEET_GAP;
-  defender.meetY = meetY;
-  defender.scale = 1;
-
-  const ARRIVE_DIST = 4;
-  const SAFETY_MS = 1600;
-  const startedAt = performance.now();
-
-  const arrivalCheck = setInterval(() => {
-    if (attacker.state !== 'approach' || defender.state !== 'approach') {
-      clearInterval(arrivalCheck);
-      laneBusy[lane] = false;
-      return;
-    }
-    const elapsed = performance.now() - startedAt;
-    const attackerHere = Math.hypot(attacker.meetX - attacker.x, attacker.meetY - attacker.y) < ARRIVE_DIST;
-    const defenderHere = Math.hypot(defender.meetX - defender.x, defender.meetY - defender.y) < ARRIVE_DIST;
-    if (!((attackerHere && defenderHere) || elapsed > SAFETY_MS)) return;
-
-    clearInterval(arrivalCheck);
-    attacker.state = 'lunge';
-    attacker.timer = 0;
-
-    setTimeout(() => {
-      // the skeleton falls just like any other unit, then respawns after its
-      // normal death timer — since only SKELETON_PER_SIDE instances ever
-      // exist, the field never holds more than that many at once
-      defender.state = 'die';
-      defender.timer = 0;
-      defender.flash = 1;
-      spawnSoul(defender.x, defender.y);
-      shakeAmount = Math.max(shakeAmount, 6);
       attacker.state = 'clash';
       attacker.timer = 0;
       attacker.flash = 1;
@@ -1669,14 +1428,10 @@ setInterval(() => {
   if (pendingMortarShots.length && tryPlayMortarShot(pendingMortarShots[0].winnerTeam, pendingMortarShots[0].magnitude)) {
     pendingMortarShots.shift();
   }
-  if (pendingSkeletonKills.length && tryPlaySkeletonKill(pendingSkeletonKills[0].winnerTeam, pendingSkeletonKills[0].magnitude)) {
-    pendingSkeletonKills.shift();
-  }
   // don't let a huge burst pile up forever into an unresolvable backlog
   if (pendingDuels.length > 30) pendingDuels.length = 30;
   if (pendingShots.length > 15) pendingShots.length = 15;
   if (pendingMortarShots.length > 10) pendingMortarShots.length = 10;
-  if (pendingSkeletonKills.length > 5) pendingSkeletonKills.length = 5;
 }, 150);
 
 // screen shake for big trades
@@ -1721,7 +1476,7 @@ function fmtBtc(v) {
 // cards, so it never grows tall enough to cover the battlefield
 let tickerPulseTimer = null;
 function pushTick(side, type, amountBtc, amountUsd) {
-  const icon = type === 'archer' ? ' \u{1F3F9}' : type === 'mortar' ? ' \u{1F4A3}' : type === 'skeleton' ? ' \u{1F480}' : '';
+  const icon = type === 'archer' ? ' \u{1F3F9}' : type === 'mortar' ? ' \u{1F4A3}' : '';
   const label = (side === 'long' ? 'BUY' : 'SELL') + icon;
   const fontSize = Math.min(9 + Math.log10(1 + amountUsd) * 3, 23); // halved vs before
   tickerLineEl.style.fontSize = fontSize + 'px';
@@ -1772,8 +1527,6 @@ function handleTrade(type, isBuy, amountBtc, amountUsd) {
     playArcherShot(winnerTeam, magnitude);
   } else if (type === 'mortar') {
     playMortarShot(winnerTeam, magnitude);
-  } else if (type === 'skeleton') {
-    playSkeletonKill(winnerTeam, magnitude);
   } else {
     playDuel(winnerTeam, magnitude);
   }
@@ -1793,7 +1546,6 @@ const REST_URL = 'https://fapi.binance.com/fapi/v1/aggTrades?symbol=BTCUSDT';
 const THRESHOLD_BTC = 1.0;        // every 1.0 BTC bought/sold triggers one melee (cutlass) duel
 const ARCHER_THRESHOLD_BTC = 2.0; // every 2.0 BTC bought/sold triggers one pistol shot
 const MORTAR_THRESHOLD_BTC = 3.0; // every 3.0 BTC bought/sold triggers one mortar shell (min step size)
-const SKELETON_THRESHOLD_BTC = 10.0; // every 10.0 BTC bought/sold slays one skeleton hero
 
 let ws;
 let queue = [];
@@ -1804,8 +1556,6 @@ let mortarBuyAccum = 0;
 let mortarSellAccum = 0;
 let archerBuyAccum = 0;
 let archerSellAccum = 0;
-let skeletonBuyAccum = 0;
-let skeletonSellAccum = 0;
 let lastAggId = 0;
 let lastMessageAt = 0;
 let wsConnected = false;
@@ -1852,16 +1602,6 @@ function ingestTrade(aggId, price, qty, isBuy) {
     const consumedBtc = mortarUnits * MORTAR_THRESHOLD_BTC;
     if (isBuy) mortarBuyAccum -= consumedBtc; else mortarSellAccum -= consumedBtc;
     queue.push({ type: 'mortar', isBuy, amountBtc: consumedBtc, amountUsd: consumedBtc * price });
-  }
-
-  // skeleton kills: rarest of all, whale-sized trades (every SKELETON_THRESHOLD_BTC)
-  if (isBuy) skeletonBuyAccum += qty; else skeletonSellAccum += qty;
-  let skeletonAccum = isBuy ? skeletonBuyAccum : skeletonSellAccum;
-  const skeletonUnits = Math.floor(skeletonAccum / SKELETON_THRESHOLD_BTC);
-  if (skeletonUnits > 0) {
-    const consumedBtc = skeletonUnits * SKELETON_THRESHOLD_BTC;
-    if (isBuy) skeletonBuyAccum -= consumedBtc; else skeletonSellAccum -= consumedBtc;
-    queue.push({ type: 'skeleton', isBuy, amountBtc: consumedBtc, amountUsd: consumedBtc * price });
   }
 }
 
